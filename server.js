@@ -1,53 +1,42 @@
-const express = require("express");
-const fetch = require("node-fetch");
-const cors = require("cors");
-const { JSDOM } = require("jsdom");
+const express = require('express');
+const request = require('request');
+const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+app.use(cors());
 
-app.use(cors({ origin: "*" }));
-app.use(express.json());
-
-app.get("/fetch", async (req, res) => {
+app.get('/fetch', (req, res) => {
     let url = req.query.url;
-    if (!url) return res.status(400).send("URL is required");
 
-    // If no domain ending, search Google
-    if (!/\.\w{2,}/.test(url)) {
-        url = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
-    } else if (!url.startsWith("http")) {
-        url = "https://" + url;
+    if (!url) {
+        return res.status(400).send('No URL provided');
     }
 
-    try {
-        const response = await fetch(url, {
-            headers: { "User-Agent": "Mozilla/5.0" }
-        });
+    // Ensure URL starts with http/https
+    if (!/^https?:\/\//i.test(url)) {
+        url = 'https://' + url;
+    }
 
-        let contentType = response.headers.get("content-type");
+    request(
+        { url, headers: { 'User-Agent': 'Mozilla/5.0' } },
+        (error, response, body) => {
+            if (error) {
+                return res.status(500).send('Error fetching the URL');
+            }
 
-        if (contentType.includes("text/html")) {
-            let html = await response.text();
-            let dom = new JSDOM(html);
+            let headers = { ...response.headers };
 
-            dom.window.document.querySelectorAll("a").forEach(link => {
-                let href = link.getAttribute("href");
-                if (href && !href.startsWith("#") && !href.startsWith("javascript")) {
-                    link.setAttribute("href", `/fetch?url=${encodeURIComponent(new URL(href, url).href)}`);
-                }
-            });
+            // Remove security headers that block embedding
+            delete headers['x-frame-options'];
+            if (headers['content-security-policy']) {
+                headers['content-security-policy'] = headers['content-security-policy'].replace(/frame-ancestors [^;]+;/, '');
+            }
 
-            return res.send(dom.serialize());
-        } else {
-            return res.send(await response.buffer());
+            res.set(headers);
+            res.send(body);
         }
-
-    } catch (error) {
-        res.status(500).send("Error fetching the website: " + error.message);
-    }
+    );
 });
 
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
