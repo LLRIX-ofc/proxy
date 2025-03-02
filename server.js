@@ -1,25 +1,28 @@
 const express = require("express");
 const fetch = require("node-fetch");
 const cors = require("cors");
-const { JSDOM } = require("jsdom"); // Needed to modify links
+const { JSDOM } = require("jsdom");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-app.use(cors({ origin: "*" })); // Allow all origins
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 app.get("/fetch", async (req, res) => {
     let url = req.query.url;
     if (!url) return res.status(400).send("URL is required");
 
-    if (!url.startsWith("http")) {
-        url = "https://" + url; // Ensure HTTPS
+    // If no domain ending, search Google
+    if (!/\.\w{2,}/.test(url)) {
+        url = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
+    } else if (!url.startsWith("http")) {
+        url = "https://" + url;
     }
 
     try {
         const response = await fetch(url, {
-            headers: { "User-Agent": "Mozilla/5.0" } // Prevent blocking
+            headers: { "User-Agent": "Mozilla/5.0" }
         });
 
         let contentType = response.headers.get("content-type");
@@ -28,7 +31,6 @@ app.get("/fetch", async (req, res) => {
             let html = await response.text();
             let dom = new JSDOM(html);
 
-            // Modify all links to go through the proxy
             dom.window.document.querySelectorAll("a").forEach(link => {
                 let href = link.getAttribute("href");
                 if (href && !href.startsWith("#") && !href.startsWith("javascript")) {
@@ -38,7 +40,7 @@ app.get("/fetch", async (req, res) => {
 
             return res.send(dom.serialize());
         } else {
-            return res.send(await response.buffer()); // Return other content types as is
+            return res.send(await response.buffer());
         }
 
     } catch (error) {
@@ -47,5 +49,5 @@ app.get("/fetch", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running at https://marshy-superficial-horse.glitch.me/`);
+    console.log(`Server running on port ${PORT}`);
 });
