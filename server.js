@@ -1,11 +1,11 @@
 const express = require('express');
-const request = require('request');
+const fetch = require('node-fetch');
 const cors = require('cors');
 
 const app = express();
 app.use(cors());
 
-app.get('/fetch', (req, res) => {
+app.get('/fetch', async (req, res) => {
     let url = req.query.url;
 
     if (!url) {
@@ -17,25 +17,24 @@ app.get('/fetch', (req, res) => {
         url = 'https://' + url;
     }
 
-    request(
-        { url, headers: { 'User-Agent': 'Mozilla/5.0' } },
-        (error, response, body) => {
-            if (error) {
-                return res.status(500).send('Error fetching the URL');
-            }
+    try {
+        const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        let headers = { ...response.headers.raw() };
 
-            let headers = { ...response.headers };
-
-            // Remove security headers that block embedding
-            delete headers['x-frame-options'];
-            if (headers['content-security-policy']) {
-                headers['content-security-policy'] = headers['content-security-policy'].replace(/frame-ancestors [^;]+;/, '');
-            }
-
-            res.set(headers);
-            res.send(body);
+        // Remove security headers that block embedding
+        delete headers['x-frame-options'];
+        if (headers['content-security-policy']) {
+            headers['content-security-policy'] = headers['content-security-policy'].map(
+                (policy) => policy.replace(/frame-ancestors [^;]+;/, '')
+            );
         }
-    );
+
+        res.set(headers);
+        const body = await response.text();
+        res.send(body);
+    } catch (error) {
+        res.status(500).send('Error fetching the URL');
+    }
 });
 
 const PORT = process.env.PORT || 3000;
