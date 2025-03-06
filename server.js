@@ -25,16 +25,24 @@ app.get('/fetch', async (req, res) => {
 
         console.log(`Response status: ${response.status}`); // Debugging
         
-        let headers = { ...response.headers.raw() };
+        // Convert headers to a valid format (avoid arrays)
+        let headers = {};
+        response.headers.forEach((value, key) => {
+            headers[key] = value; // Ensure headers are strings, not arrays
+        });
+
+        // Remove problematic headers
         delete headers['x-frame-options'];
 
         if (headers['content-security-policy']) {
-            headers['content-security-policy'] = headers['content-security-policy'].map(
-                (policy) => policy.replace(/frame-ancestors [^;]+;/, '')
-            );
+            headers['content-security-policy'] = headers['content-security-policy'].replace(/frame-ancestors [^;]+;/, '');
         }
 
-        res.set(headers);
+        // Set headers safely
+        Object.entries(headers).forEach(([key, value]) => {
+            res.setHeader(key, value);
+        });
+
         const body = await response.text();
         res.send(body);
     } catch (error) {
@@ -42,7 +50,6 @@ app.get('/fetch', async (req, res) => {
         res.status(500).send('Error fetching the URL');
     }
 });
-
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
