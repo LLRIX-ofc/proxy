@@ -12,7 +12,7 @@ app.get('/api/suggest', async (req, res) => {
   if (!q) return res.status(400).json({ error: 'Missing query param' });
 
   try {
-    const response = await fetch(`https://search.brave.com/api/suggest?q=${encodeURIComponent(q)}`);
+    const response = await fetch(`https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(q)}`);
     const data = await response.json();
     res.json(data[1]);
   } catch (err) {
