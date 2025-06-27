@@ -1,14 +1,30 @@
 {
-  "name": "search-proxy",
+  "name": "universal-proxy",
   "version": "1.0.0",
-  "description": "CORS-enabled proxy for search suggestions",
+  "description": "A universal HTTP proxy running on Render to forward all network actions without breaking site functionality.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^4.18.2",
-    "node-fetch": "^2.6.7"
-  }
+    "node-fetch": "^2.6.9",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "keywords": [
+    "proxy",
+    "express",
+    "fetch",
+    "reverse-proxy",
+    "render"
+  ],
+  "author": "LLRIX",
+  "license": "MIT"
 }
