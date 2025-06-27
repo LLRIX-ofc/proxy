@@ -1,13 +1,13 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const cors = require('cors');
-
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Universal proxy route
 app.use('/proxy', async (req, res) => {
   const targetUrl = req.query.url;
   if (!targetUrl) return res.status(400).json({ error: 'Missing URL parameter' });
@@ -15,8 +15,8 @@ app.use('/proxy', async (req, res) => {
   try {
     const response = await fetch(targetUrl, {
       method: req.method,
-      headers: req.headers,
-      body: req.method === 'GET' ? undefined : req.body,
+      headers: { ...req.headers, host: undefined }, // remove host header to avoid host mismatch
+      body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body),
     });
 
     // Forward status and headers
@@ -25,8 +25,8 @@ app.use('/proxy', async (req, res) => {
       res.setHeader(name, value);
     });
 
-    // Pipe response to client
-    response.body.pipe(res);
+    const buffer = await response.buffer();
+    res.send(buffer);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Fetch failed' });
