@@ -1,50 +1,47 @@
 import express from "express";
-import { createProxyMiddleware } from "http-proxy-middleware";
+import proxy from "express-http-proxy";
 import url from "url";
 
 const app = express();
 
-app.use("/proxy", (req, res, next) => {
-  const parsedUrl = url.parse(req.url, true);
-  const targetFullUrl = parsedUrl.path.slice(1); // Remove leading slash
+// Universal proxy route
+app.use("/proxy", proxy((req) => {
+  const targetUrl = req.url.slice(1); // Remove leading "/"
+  const parsed = url.parse(targetUrl);
+  const targetHost = parsed.protocol + "//" + parsed.host;
 
-  if (!targetFullUrl.startsWith("http")) {
-    return res.status(400).send("Invalid target URL");
+  return targetHost;
+}, {
+  proxyReqPathResolver: (req) => {
+    const parsed = url.parse(req.url.slice(1));
+    return parsed.path;
+  },
+  proxyReqOptDecorator: (proxyReqOpts, srcReq) => {
+    const parsed = url.parse(srcReq.url.slice(1));
+    proxyReqOpts.headers['Host'] = parsed.host;
+    proxyReqOpts.headers['Origin'] = parsed.protocol + "//" + parsed.host;
+    proxyReqOpts.headers['Referer'] = parsed.protocol + "//" + parsed.host;
+    delete proxyReqOpts.headers['x-forwarded-for'];
+    delete proxyReqOpts.headers['x-forwarded-host'];
+    delete proxyReqOpts.headers['x-forwarded-proto'];
+    return proxyReqOpts;
+  },
+  userResDecorator: function(proxyRes, proxyResData, userReq, userRes) {
+    let data = proxyResData.toString('utf8');
+    if (proxyRes.headers['content-type'] && proxyRes.headers['content-type'].includes('text/html')) {
+      data = data.replace(/(href|src|action)=["'](.*?)["']/g, (match, p1, p2) => {
+        if (p2.startsWith("http")) {
+          return `${p1}="/proxy/${p2}"`;
+        } else if (p2.startsWith("/")) {
+          return `${p1}="/proxy/${parsed.protocol}//${parsed.host}${p2}"`;
+        } else {
+          return `${p1}="/proxy/${parsed.protocol}//${parsed.host}/${p2}"`;
+        }
+      });
+    }
+    return data;
   }
-
-  const targetObj = url.parse(targetFullUrl);
-
-  // Create dynamic proxy middleware
-  createProxyMiddleware({
-    target: targetObj.protocol + "//" + targetObj.host,
-    changeOrigin: true,
-    pathRewrite: (path, req) => {
-      const originalPath = url.parse(req.url).path;
-      // Remove "/proxy/<target_origin>" prefix
-      const pathParts = originalPath.split("/");
-      pathParts.splice(0, 3); // remove ['', 'proxy', 'https:']
-      return "/" + pathParts.join("/");
-    },
-    onProxyReq: (proxyReq, req, res) => {
-      // Overwrite Host header to match the target
-      proxyReq.setHeader("Host", targetObj.host);
-      proxyReq.removeHeader("Via");
-      proxyReq.removeHeader("X-Forwarded-For");
-      proxyReq.removeHeader("X-Forwarded-Host");
-      proxyReq.removeHeader("X-Forwarded-Proto");
-    },
-    onProxyRes: (proxyRes, req, res) => {
-      delete proxyRes.headers["via"];
-      delete proxyRes.headers["x-forwarded-for"];
-      delete proxyRes.headers["x-forwarded-host"];
-      delete proxyRes.headers["x-forwarded-proto"];
-    },
-    ws: true,
-    secure: false, // Accept self-signed
-  })(req, res, next);
-});
+}));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Proxy running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
