@@ -1,77 +1,50 @@
-const express = require('express');
-const puppeteer = require('puppeteer');
+import express from "express";
+import { createProxyMiddleware } from "http-proxy-middleware";
+import url from "url";
+
 const app = express();
 
-app.get('/proxy/*', async (req, res) => {
-  const targetUrl = req.url.replace('/proxy/', '');
-  if (!targetUrl.startsWith('http')) {
-    return res.status(400).send('Invalid URL');
+app.use("/proxy", (req, res, next) => {
+  const parsedUrl = url.parse(req.url, true);
+  const targetFullUrl = parsedUrl.path.slice(1); // Remove leading slash
+
+  if (!targetFullUrl.startsWith("http")) {
+    return res.status(400).send("Invalid target URL");
   }
 
-  try {
-    const browser = await puppeteer.launch();
-    const page = await browser.newPage();
+  const targetObj = url.parse(targetFullUrl);
 
-    // Disable CSP for the page (so browser doesn’t block framing)
-    await page.setBypassCSP(true);
-
-    await page.goto(targetUrl, { waitUntil: 'networkidle2' });
-
-    // Remove frame-busting scripts by injecting JS
-    await page.evaluate(() => {
-      // Overwrite frame busting JS
-      Object.defineProperty(window, 'top', { get: () => window });
-      window.onbeforeunload = null;
-      window.onunload = null;
-    });
-
-    // Get final HTML after JS runs
-    // Intercept network requests
-    await page.setRequestInterception(true);
-    page.on('request', (interceptedRequest) => {
-      const requestUrl = interceptedRequest.url();
-      // Rewrite URL to go through proxy, but avoid double-proxying
-      if (requestUrl.startsWith(targetUrl) && !requestUrl.startsWith(req.protocol + '://' + req.get('host') + '/proxy/')) {
-        const proxiedUrl = `/proxy/${requestUrl}`;
-        interceptedRequest.continue({ url: proxiedUrl });
-      } else {
-        interceptedRequest.continue();
-      }
-    });
-
-    // Modify a tags and form actions to point to the proxy
-    let content = await page.content();
-    const baseUrl = req.protocol + '://' + req.get('host') + '/proxy/';
-
-    // Rewrite absolute URLs
-    content = content.replace(new RegExp(`(href|src|action)=["'](https?://[^"']+)["']`, 'gi'), (match, attr, url) => {
-      if (url.startsWith(targetUrl)) { // Only rewrite URLs from the target domain
-        return `${attr}="${baseUrl}${url}"`;
-      }
-      return match; // Keep external links as they are
-    });
-
-    // Rewrite relative URLs
-    content = content.replace(new RegExp(`(href|src|action)=["'](?!(?:https?://|#|javascript:))([^"']+)["']`, 'gi'), (match, attr, url) => {
-      // Construct absolute URL based on the target URL
-      const absoluteUrl = new URL(url, targetUrl).href;
-      return `${attr}="${baseUrl}${absoluteUrl}"`;
-    });
-
-
-    await browser.close();
-
-    res.set('Content-Type', 'text/html');
-    res.send(content);
-
-  } catch (err) {
-    console.error('Error loading page:', err);
-    res.status(500).send('Error loading page: ' + err.message);
-  }
+  // Create dynamic proxy middleware
+  createProxyMiddleware({
+    target: targetObj.protocol + "//" + targetObj.host,
+    changeOrigin: true,
+    pathRewrite: (path, req) => {
+      const originalPath = url.parse(req.url).path;
+      // Remove "/proxy/<target_origin>" prefix
+      const pathParts = originalPath.split("/");
+      pathParts.splice(0, 3); // remove ['', 'proxy', 'https:']
+      return "/" + pathParts.join("/");
+    },
+    onProxyReq: (proxyReq, req, res) => {
+      // Overwrite Host header to match the target
+      proxyReq.setHeader("Host", targetObj.host);
+      proxyReq.removeHeader("Via");
+      proxyReq.removeHeader("X-Forwarded-For");
+      proxyReq.removeHeader("X-Forwarded-Host");
+      proxyReq.removeHeader("X-Forwarded-Proto");
+    },
+    onProxyRes: (proxyRes, req, res) => {
+      delete proxyRes.headers["via"];
+      delete proxyRes.headers["x-forwarded-for"];
+      delete proxyRes.headers["x-forwarded-host"];
+      delete proxyRes.headers["x-forwarded-proto"];
+    },
+    ws: true,
+    secure: false, // Accept self-signed
+  })(req, res, next);
 });
 
-// Serve static files (for index.html)
-app.use(express.static('public'));
-
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Server running on port ${PORT} at http://localhost:${PORT}`));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Proxy running on port ${PORT}`);
+});
